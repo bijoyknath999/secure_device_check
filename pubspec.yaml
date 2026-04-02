@@ -1,0 +1,38 @@
+name: secure_device_check
+description: >-
+  A production-ready Flutter plugin for banking & fintech apps. Provides emulator detection,
+  root/jailbreak detection, developer options detection, and screen protection (blocks screenshots
+  & screen recording) for Android & iOS.
+version: 1.0.0
+homepage: https://github.com/bijoyknath999/secure_device_check
+repository: https://github.com/bijoyknath999/secure_device_check
+issue_tracker: https://github.com/bijoyknath999/secure_device_check/issues
+topics:
+  - security
+  - emulator-detection
+  - root-detection
+  - developer-options
+  - screen-protection
+
+environment:
+  sdk: ^3.10.4
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: io.github.bijoyknath.secure_device_check
+        pluginClass: SecureDeviceCheckPlugin
+      ios:
+        pluginClass: SecureDeviceCheckPlugin
