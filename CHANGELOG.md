@@ -1,3 +1,7 @@
+## 1.0.3
+
+* **Documentation** — Updated README dependency constraints to use the latest fixes (`^1.0.2`).
+
 ## 1.0.2
 
 * **iOS Screen Protection — Universal iOS version support** — Fixed secure text field approach to work across all iOS versions (15-18+) by searching for the internal `_UITextLayoutCanvasView` by class name instead of relying on a fixed subview index. Includes a layer-based fallback for edge cases.
