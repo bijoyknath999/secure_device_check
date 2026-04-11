@@ -11,7 +11,7 @@ A production-ready Flutter plugin for **banking & fintech apps** that provides c
 |---|---|---|
 | 🔍 Emulator / Simulator Detection | ✅ Build properties, telephony checks | ✅ Compile-time + runtime checks |
 | 🔓 Root / Jailbreak Detection | ✅ su binary, Magisk, BusyBox, unsafe props | ✅ 30+ file paths, Cydia, sandbox escape |
-| 🛠️ Developer Options Detection | ✅ `Settings.Global` checks | ⬜ Not exposed by iOS |
+| 🛠️ Developer Options Detection | ✅ `Settings.Global` checks | ✅ Debugger + provisioning profile check |
 | 🛡️ Screen Protection (Screenshot & Recording Block) | ✅ `FLAG_SECURE` — black screen | ✅ Secure text field overlay |
 
 ## Getting Started
@@ -74,7 +74,7 @@ if (devOptions['usbDebugging'] == true) {
 }
 ```
 
-> **Note:** On iOS, `developerOptions` and `usbDebugging` are always `false` since iOS does not expose developer settings to third-party apps.
+> **Note:** On iOS, `developerOptions` is `true` when a debugger is attached OR the app is signed with a development provisioning profile. `usbDebugging` is `true` when a debugger (Xcode / lldb) is actively attached.
 
 ### Screen Protection (Screenshot & Recording Block)
 
@@ -176,8 +176,8 @@ class _SecurityScreenState extends State<SecurityScreen> {
 
 - **Simulator detection** uses `#if targetEnvironment(simulator)` at compile time, plus runtime environment variable checks.
 - **Jailbreak detection** checks 30+ known file paths, attempts `cydia://` URL scheme, writes outside the sandbox, and checks for symbolic links.
-- **Developer options** are not exposed by iOS — always returns `false`.
-- **Screen protection** uses a secure `UITextField` overlay technique that makes captured content blank in screenshots and screen recordings.
+- **Developer options** detects debugger attachment via `sysctl` `P_TRACED` flag and checks for a development provisioning profile (`get-task-allow` entitlement).
+- **Screen protection** reparents all Flutter views into a secure `UITextField` container view, making all content invisible to screenshots and screen recordings.
 
 ## License
 

@@ -4,21 +4,37 @@ import UIKit
 public class SecureDeviceCheckPlugin: NSObject, FlutterPlugin {
 
     private var methodChannel: FlutterMethodChannel?
+    
+    // Screenshot detection
+    private var screenshotObserver: NSObjectProtocol?
+    
+    // Screen protection
     private var secureTextField: UITextField?
-
-    override init() {
-        super.init()
-    }
+    private var isProtectionEnabled = false
+    
+    // Screen recording
+    private var privacyOverlay: UIView?
+    private var recordingObserver: NSObjectProtocol?
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = SecureDeviceCheckPlugin()
 
-        let methodChannel = FlutterMethodChannel(
+        let channel = FlutterMethodChannel(
             name: "secure_device_check",
             binaryMessenger: registrar.messenger()
         )
-        instance.methodChannel = methodChannel
-        registrar.addMethodCallDelegate(instance, channel: methodChannel)
+        instance.methodChannel = channel
+
+        // Screenshot detection — always active
+        instance.screenshotObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.userDidTakeScreenshotNotification,
+            object: nil,
+            queue: .main
+        ) { [weak instance] _ in
+            instance?.methodChannel?.invokeMethod("onScreenshotDetected", arguments: nil)
+        }
+
+        registrar.addMethodCallDelegate(instance, channel: channel)
     }
 
     // MARK: - FlutterPlugin
@@ -30,20 +46,188 @@ public class SecureDeviceCheckPlugin: NSObject, FlutterPlugin {
         case "isDeviceCompromised":
             result(checkIsJailbroken())
         case "isDeveloperOptionsEnabled":
-            // iOS does not expose developer settings to third-party apps
-            result(["developerOptions": false, "usbDebugging": false])
+            result(checkDeveloperOptions())
         case "enableScreenProtection":
-            enableScreenProtection()
-            result(nil)
+            enableScreenProtection(result: result)
         case "disableScreenProtection":
-            disableScreenProtection()
-            result(nil)
+            disableScreenProtection(result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
     }
 
-    // MARK: - Emulator / Simulator Detection
+    // MARK: - Screen Protection
+    //
+    // The UITextField internal structure differs across iOS versions:
+    //   iOS 18+: subview[0]=_UITouchPassthroughView, subview[1]=_UITextLayoutCanvasView
+    //   iOS 17:  subview[0]=_UITextLayoutCanvasView (possibly)
+    //   iOS 15-16: may have different structure
+    //
+    // We search ALL subviews by class name for the secure canvas,
+    // then fall back to layer-based approach if not found.
+
+    private func enableScreenProtection(result: @escaping FlutterResult) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { result(nil); return }
+            guard !self.isProtectionEnabled, self.secureTextField == nil else {
+                result(nil); return
+            }
+            guard let window = self.getKeyWindow() else {
+                result(nil); return
+            }
+            guard let rootVC = window.rootViewController else {
+                result(nil); return
+            }
+
+            let flutterView = rootVC.view!
+            
+            // Create full-screen secure text field
+            let field = UITextField()
+            field.isSecureTextEntry = true
+            field.isUserInteractionEnabled = true
+            field.frame = window.bounds
+            field.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            
+            // Add to window to initialize internal view hierarchy
+            window.addSubview(field)
+            field.layoutIfNeeded()
+            
+            self.secureTextField = field
+            
+            // Find secure subview by class name (_UITextLayoutCanvasView)
+            var secureView: UIView? = nil
+            for sv in field.subviews {
+                let className = String(describing: type(of: sv))
+                if className.contains("TextLayoutCanvas") || className.contains("TextCanvas") {
+                    secureView = sv
+                    break
+                }
+            }
+            
+            // Fallback: use last subview
+            if secureView == nil, field.subviews.count > 0 {
+                secureView = field.subviews.last
+            }
+            
+            // === Apply protection using the found secure view ===
+            if let sv = secureView {
+                // Expand to full screen
+                sv.frame = window.bounds
+                sv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                sv.isUserInteractionEnabled = true
+                
+                // Move Flutter view INTO the secure view
+                sv.addSubview(flutterView)
+                flutterView.frame = sv.bounds
+                flutterView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                
+                self.isProtectionEnabled = true
+            } else {
+                // Layer-based fallback
+                
+                if let superlayer = window.layer.superlayer {
+                    field.layer.frame = window.bounds
+                    superlayer.addSublayer(field.layer)
+                    
+                    // Try last sublayer first (canvas), then first
+                    let targetLayer = field.layer.sublayers?.last ?? field.layer.sublayers?.first
+                    if let secureLayer = targetLayer {
+                        secureLayer.frame = window.bounds
+                        secureLayer.addSublayer(window.layer)
+                        self.isProtectionEnabled = true
+                    }
+                }
+            }
+            
+            if self.isProtectionEnabled {
+                // Screen recording overlay
+                self.updateRecordingOverlay(window: window)
+                self.recordingObserver = NotificationCenter.default.addObserver(
+                    forName: UIScreen.capturedDidChangeNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    guard let self = self, let win = self.getKeyWindow() else { return }
+                    self.updateRecordingOverlay(window: win)
+                }
+            }
+            
+            result(nil)
+        }
+    }
+
+    private func disableScreenProtection(result: @escaping FlutterResult) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { result(nil); return }
+            guard self.isProtectionEnabled else { result(nil); return }
+
+            if let obs = self.recordingObserver {
+                NotificationCenter.default.removeObserver(obs)
+                self.recordingObserver = nil
+            }
+
+            self.privacyOverlay?.removeFromSuperview()
+            self.privacyOverlay = nil
+
+            // Move Flutter view BACK to the window
+            if let window = self.findWindow(),
+               let rootVC = window.rootViewController {
+                window.addSubview(rootVC.view)
+                rootVC.view.frame = window.bounds
+                rootVC.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            }
+            
+            // Restore layer if layer approach was used
+            if let field = self.secureTextField,
+               let parentLayer = field.layer.superlayer,
+               let window = self.findWindow(),
+               window.layer.superlayer !== parentLayer.superlayer {
+                parentLayer.addSublayer(window.layer)
+                field.layer.removeFromSuperlayer()
+            }
+            
+            // Remove the secure text field
+            self.secureTextField?.removeFromSuperview()
+            self.secureTextField = nil
+            self.isProtectionEnabled = false
+            result(nil)
+        }
+    }
+
+    private func updateRecordingOverlay(window: UIWindow) {
+        if UIScreen.main.isCaptured {
+            guard self.privacyOverlay == nil else { return }
+            let overlay = UIView(frame: window.bounds)
+            overlay.backgroundColor = .black
+            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.isUserInteractionEnabled = false
+            window.addSubview(overlay)
+            self.privacyOverlay = overlay
+        } else {
+            self.privacyOverlay?.removeFromSuperview()
+            self.privacyOverlay = nil
+        }
+    }
+
+    // MARK: - Window Helpers
+
+    private func getKeyWindow() -> UIWindow? {
+        if #available(iOS 15.0, *) {
+            return UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .first { $0.activationState == .foregroundActive }?
+                .keyWindow
+                ?? UIApplication.shared.windows.first { $0.isKeyWindow }
+        } else {
+            return UIApplication.shared.windows.first { $0.isKeyWindow }
+        }
+    }
+
+    private func findWindow() -> UIWindow? {
+        return getKeyWindow() ?? UIApplication.shared.windows.first
+    }
+
+    // MARK: - Emulator Detection
 
     private func checkIsEmulator() -> Bool {
         #if targetEnvironment(simulator)
@@ -110,7 +294,6 @@ public class SecureDeviceCheckPlugin: NSObject, FlutterPlugin {
             "/.cydia_no_stash",
             "/.installed_unc0ver",
             "/jb/offsets.plist",
-            "/usr/share/jailbreak/injectme.plist",
             "/Library/MobileSubstrate/DynamicLibraries/LiveClock.plist",
             "/Library/MobileSubstrate/DynamicLibraries/Veency.plist"
         ]
@@ -161,49 +344,55 @@ public class SecureDeviceCheckPlugin: NSObject, FlutterPlugin {
         return false
     }
 
-    // MARK: - Screen Protection
-    //
-    // Uses a secure UITextField overlay to prevent content from appearing
-    // in screenshots and screen recordings. When enabled, captured content
-    // appears blank/black.
+    // MARK: - Developer Options Detection
 
-    private func enableScreenProtection() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            guard let window = self.getKeyWindow() else { return }
+    private func checkDeveloperOptions() -> [String: Bool] {
+        let debuggerAttached = isDebuggerAttached()
+        let devProfile = hasDevelopmentProvisioningProfile()
+        return [
+            "developerOptions": debuggerAttached || devProfile,
+            "usbDebugging": debuggerAttached
+        ]
+    }
 
-            if self.secureTextField == nil {
-                let textField = UITextField()
-                textField.isSecureTextEntry = true
-                textField.isUserInteractionEnabled = false
-                window.addSubview(textField)
-                textField.centerYAnchor.constraint(equalTo: window.centerYAnchor).isActive = true
-                textField.centerXAnchor.constraint(equalTo: window.centerXAnchor).isActive = true
-                self.secureTextField = textField
+    private func isDebuggerAttached() -> Bool {
+        var info = kinfo_proc()
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        var size = MemoryLayout<kinfo_proc>.stride
+        let result = sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0)
+        if result != 0 { return false }
+        return (info.kp_proc.p_flag & P_TRACED) != 0
+    }
 
-                if let secureLayer = textField.layer.sublayers?.first {
-                    secureLayer.frame = window.bounds
-                    window.layer.superlayer?.addSublayer(secureLayer)
-                }
+    private func hasDevelopmentProvisioningProfile() -> Bool {
+        #if targetEnvironment(simulator)
+        return true
+        #else
+        guard let profilePath = Bundle.main.path(forResource: "embedded", ofType: "mobileprovision"),
+              let profileData = try? Data(contentsOf: URL(fileURLWithPath: profilePath)),
+              let profileString = String(data: profileData, encoding: .ascii) else {
+            return false
+        }
+        let key = "<key>get-task-allow</key>"
+        guard let range = profileString.range(of: key) else { return false }
+        let afterKey = profileString[range.upperBound...]
+        if afterKey.contains("<true/>") {
+            if let trueRange = afterKey.range(of: "<true/>"),
+               let nextKeyRange = afterKey.range(of: "<key>") {
+                return trueRange.lowerBound < nextKeyRange.lowerBound
             }
+            return true
         }
+        return false
+        #endif
     }
 
-    private func disableScreenProtection() {
-        DispatchQueue.main.async { [weak self] in
-            self?.secureTextField?.removeFromSuperview()
-            self?.secureTextField = nil
+    deinit {
+        if let obs = screenshotObserver {
+            NotificationCenter.default.removeObserver(obs)
         }
-    }
-
-    private func getKeyWindow() -> UIWindow? {
-        if #available(iOS 15.0, *) {
-            return UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .flatMap { $0.windows }
-                .first { $0.isKeyWindow }
-        } else {
-            return UIApplication.shared.windows.first { $0.isKeyWindow }
+        if let obs = recordingObserver {
+            NotificationCenter.default.removeObserver(obs)
         }
     }
 }

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:secure_device_check/secure_device_check.dart';
 
@@ -52,6 +50,8 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
     _runAllChecks();
   }
 
+
+
   Future<void> _runAllChecks() async {
     setState(() {
       _isLoading = true;
@@ -93,8 +93,8 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
       setState(() => _screenProtectionEnabled = !_screenProtectionEnabled);
       _showSnackBar(
         _screenProtectionEnabled
-            ? '🛡️ Screen protection enabled — screenshots & recordings will be black'
-            : '📷 Screen protection disabled',
+            ? '🛡️ Screen protection ON — screenshots & recordings blocked'
+            : '📷 Screen protection OFF — normal behavior',
       );
     } catch (e) {
       _showSnackBar('Error toggling screen protection: $e');
@@ -130,7 +130,7 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                // Error message if any
+                // Error
                 if (_errorMessage != null) ...[
                   Card(
                     color: colorScheme.errorContainer,
@@ -142,11 +142,9 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
                               color: colorScheme.onErrorContainer),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              _errorMessage!,
-                              style: TextStyle(
-                                  color: colorScheme.onErrorContainer),
-                            ),
+                            child: Text(_errorMessage!,
+                                style: TextStyle(
+                                    color: colorScheme.onErrorContainer)),
                           ),
                         ],
                       ),
@@ -155,11 +153,43 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
                   const SizedBox(height: 12),
                 ],
 
-                // Overall Status Banner
+                // Status Banner
                 _buildStatusBanner(colorScheme),
                 const SizedBox(height: 24),
 
-                // Detection Cards
+
+
+                // ═══ SCREEN PROTECTION ═══
+                Text(
+                  '🛡️ Screen Protection',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Card(
+                  child: SwitchListTile(
+                    secondary: Icon(
+                      _screenProtectionEnabled
+                          ? Icons.shield
+                          : Icons.shield_outlined,
+                      color: _screenProtectionEnabled
+                          ? colorScheme.primary
+                          : colorScheme.onSurfaceVariant,
+                    ),
+                    title: const Text('Block Screenshots & Recording'),
+                    subtitle: Text(
+                      _screenProtectionEnabled
+                          ? 'ON — captures will be black'
+                          : 'OFF — captures allowed',
+                    ),
+                    value: _screenProtectionEnabled,
+                    onChanged: (_) => _toggleScreenProtection(),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // ═══ DEVICE CHECKS ═══
                 Text(
                   'Device Security Checks',
                   style: theme.textTheme.titleMedium?.copyWith(
@@ -195,36 +225,6 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
                       : 'Developer options are OFF',
                   isAlert: _devOptionsEnabled,
                   colorScheme: colorScheme,
-                ),
-                const SizedBox(height: 24),
-
-                // Controls
-                Text(
-                  'Security Controls',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Card(
-                  child: SwitchListTile(
-                    secondary: Icon(
-                      _screenProtectionEnabled
-                          ? Icons.shield
-                          : Icons.shield_outlined,
-                      color: _screenProtectionEnabled
-                          ? colorScheme.primary
-                          : colorScheme.onSurfaceVariant,
-                    ),
-                    title: const Text('Screen Protection'),
-                    subtitle: Text(
-                      _screenProtectionEnabled
-                          ? 'Screenshots & recordings will be black'
-                          : 'Screenshots & recordings allowed',
-                    ),
-                    value: _screenProtectionEnabled,
-                    onChanged: (_) => _toggleScreenProtection(),
-                  ),
                 ),
               ],
             ),
@@ -262,9 +262,8 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
   }
 
   Widget _buildStatusBanner(ColorScheme colorScheme) {
-    final hasIssue = _isEmulator == true ||
-        _isCompromised == true ||
-        _devOptionsEnabled;
+    final hasIssue =
+        _isEmulator == true || _isCompromised == true || _devOptionsEnabled;
     return Card(
       color:
           hasIssue ? colorScheme.errorContainer : colorScheme.primaryContainer,

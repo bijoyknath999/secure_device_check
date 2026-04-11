@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -8,6 +9,19 @@ class MethodChannelSecureDeviceCheck extends SecureDeviceCheckPlatform {
   /// The method channel used to interact with the native platform.
   @visibleForTesting
   final methodChannel = const MethodChannel('secure_device_check');
+  
+  final StreamController<void> _screenshotController = StreamController<void>.broadcast();
+
+  MethodChannelSecureDeviceCheck() {
+    methodChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onScreenshotDetected') {
+        _screenshotController.add(null);
+      }
+    });
+  }
+
+  @override
+  Stream<void> get onScreenshotDetected => _screenshotController.stream;
 
   @override
   Future<bool> isEmulator() async {

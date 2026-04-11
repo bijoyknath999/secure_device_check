@@ -50,8 +50,10 @@ class FlutterSecurityGuard {
   /// On Android, checks `Settings.Global.DEVELOPMENT_SETTINGS_ENABLED`
   /// and `Settings.Global.ADB_ENABLED`.
   ///
-  /// On iOS, both values are always `false` since iOS doesn't expose
-  /// developer settings to third-party apps.
+  /// On iOS, `developerOptions` is `true` when a debugger is attached OR
+  /// the app is signed with a development provisioning profile.
+  /// `usbDebugging` is `true` when a debugger (Xcode / lldb) is actively
+  /// attached (detected via `sysctl` `P_TRACED` flag).
   static Future<Map<String, bool>> isDeveloperOptionsEnabled() {
     return SecureDeviceCheckPlatform.instance.isDeveloperOptionsEnabled();
   }
@@ -72,5 +74,12 @@ class FlutterSecurityGuard {
   /// screen recording behavior.
   static Future<void> disableScreenProtection() {
     return SecureDeviceCheckPlatform.instance.disableScreenProtection();
+  }
+
+  /// A broadcast stream that emits whenever a system screenshot is natively detected.
+  /// 
+  /// Currently only supported natively on iOS due to `UIApplication.userDidTakeScreenshotNotification`.
+  static Stream<void> get onScreenshotDetected {
+    return SecureDeviceCheckPlatform.instance.onScreenshotDetected;
   }
 }

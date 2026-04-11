@@ -34,7 +34,7 @@ abstract class SecureDeviceCheckPlatform extends PlatformInterface {
   /// Returns a map with developer options status.
   ///
   /// Keys: `developerOptions` (bool), `usbDebugging` (bool).
-  /// On iOS, both are always `false`.
+  /// On iOS, detects debugger attachment and development provisioning profiles.
   Future<Map<String, bool>> isDeveloperOptionsEnabled() {
     throw UnimplementedError(
         'isDeveloperOptionsEnabled() has not been implemented.');
@@ -56,5 +56,11 @@ abstract class SecureDeviceCheckPlatform extends PlatformInterface {
   Future<void> disableScreenProtection() {
     throw UnimplementedError(
         'disableScreenProtection() has not been implemented.');
+  }
+
+  /// A stream that fires every time a system screenshot is detected natively.
+  Stream<void> get onScreenshotDetected {
+    throw UnimplementedError(
+        'onScreenshotDetected has not been implemented.');
   }
 }
