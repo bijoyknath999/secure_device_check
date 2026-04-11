@@ -1,3 +1,7 @@
+## 1.0.4
+
+* **Documentation** — Updated README dependency version indicator to match the latest release (`^1.0.4`).
+
 ## 1.0.3
 
 * **Documentation** — Updated README dependency constraints to use the latest fixes (`^1.0.2`).
