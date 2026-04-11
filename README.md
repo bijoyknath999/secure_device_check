@@ -22,7 +22,7 @@ Add the dependency to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  secure_device_check: ^1.0.0
+  secure_device_check: ^1.0.2
 ```
 
 Then run:
